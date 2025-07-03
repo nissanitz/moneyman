@@ -98,4 +98,4 @@ jobs:
           FIREWALL_SETTINGS: ${{ secrets.FIREWALL_SETTINGS }}
           BLOCK_BY_DEFAULT: ${{ vars.BLOCK_BY_DEFAULT }}
           SEND_NEW_CONFIG_TO_TG: ${{ github.event.inputs.sendNewConfigToTg }}
-          WORKSHEET_NAME: ${{ env.WORKSHEET_NAME }}
+          WORKSHEET_NAME: ${{ secrets.WORKSHEET_NAME }}
