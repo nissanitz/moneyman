@@ -56,6 +56,26 @@ Since logs are public for public repos, most logs are off by default and the pro
 1. Define the environment variables in a `.env` file
 2. `docker run --rm --env-file ".env" ghcr.io/daniel-hauser/moneyman:latest`.
 
+##### Using a configuration file (recommended for Docker)
+
+Instead of passing the configuration as an environment variable, you can mount a configuration file:
+
+```bash
+docker run --rm \
+  -v /path/to/config:/config \
+  -e MONEYMAN_CONFIG_PATH=/config/config.json \
+  ghcr.io/daniel-hauser/moneyman:latest
+```
+
+Or use Docker secrets:
+
+```bash
+docker run --rm \
+  --secret config.json \
+  -e MONEYMAN_CONFIG_PATH=/run/secrets/config.json \
+  ghcr.io/daniel-hauser/moneyman:latest
+```
+
 ##### Note
 
 docker doesn't support multiline environment variables (i.e. `GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY`), in that case you can run `docker-compose up` instead
@@ -70,7 +90,14 @@ If you want to see them, use the `DEBUG` environment variable with the value `mo
 
 ### Add accounts and scrape
 
-Moneyman uses a JSON configuration for all settings. Set the `MONEYMAN_CONFIG` environment variable with your complete configuration.
+Moneyman uses a JSON configuration for all settings. You can provide configuration in two ways:
+
+1. **`MONEYMAN_CONFIG` environment variable**: The JSON configuration as a string
+2. **`MONEYMAN_CONFIG_PATH` environment variable**: Path to a JSON or JSONC configuration file
+
+The configuration file approach is recommended for Docker/Kubernetes environments and supports JSON with Comments (JSONC) for better readability.
+
+> **Tip:** See [`config.example.jsonc`](./config.example.jsonc) for a complete example configuration file with comments.
 
 #### Accounts Configuration
 
@@ -95,6 +122,7 @@ accounts: Array<{
 | ----------------------- | ------------------ | ----------------------------------------------------------------------------------------------------- |
 | `TZ`                    | `'Asia/Jerusalem'` | A timezone for the process - used for the formatting of the timestamp                                 |
 | `MONEYMAN_CONFIG`       |                    | The JSON configuration for the process                                                                |
+| `MONEYMAN_CONFIG_PATH`  |                    | Path to a JSON/JSONC configuration file (used if `MONEYMAN_CONFIG` is not set)                        |
 | `SEND_NEW_CONFIG_TO_TG` | `"false"`          | Set to `"true"` to send the current configuration as `config.txt` via Telegram for debugging purposes |
 
 ```typescript
@@ -249,10 +277,62 @@ options: {
        * @replaces TELEGRAM_CHAT_ID environment variable
        */
       chatId: string;
+      /**
+       * Enable OTP (One-Time Password) support for 2FA authentication.
+       * When enabled, the bot will ask for OTP codes via Telegram during scraping.
+       * @default false
+       */
+      enableOtp?: boolean;
+      /**
+       * Maximum time in seconds to wait for OTP response from user.
+       * @default 300 (5 minutes)
+       */
+      otpTimeoutSeconds?: number;
     };
   };
 };
 ```
+
+#### Using OTP 2FA with OneZero Accounts
+
+If you have OneZero accounts that require 2FA authentication, you can enable OTP support:
+
+1. **Enable OTP in your configuration**:
+
+   ```json
+   {
+     "options": {
+       "notifications": {
+         "telegram": {
+           "apiKey": "your-telegram-bot-token",
+           "chatId": "your-chat-id",
+           "enableOtp": true,
+           "otpTimeoutSeconds": 300
+         }
+       }
+     }
+   }
+   ```
+
+2. **Configure your OneZero account with phone number**:
+
+   ```json
+   {
+     "accounts": [
+       {
+         "companyId": "oneZero",
+         "email": "your-email@example.com",
+         "password": "your-password",
+         "phoneNumber": "+972501234567"
+       }
+     ]
+   }
+   ```
+
+3. **During scraping**: When a OneZero account requires 2FA, the bot will:
+   - Send a message asking for the OTP code
+   - Wait for you to reply with the code (4-8 digits)
+   - Continue the scraping process automatically
 
 ### Export to Azure Data Explorer
 
@@ -399,6 +479,35 @@ storage: {
 
 > [!IMPORTANT]
 > Be sure to post only to a trusted server.
+
+### Export to PostgreSQL
+
+Persist transactions in a PostgreSQL database for analytics or downstream integrations.
+
+- moneyman creates (or reuses) a dedicated schema named `moneyman` by default. You can override the schema name with the `schema` property if you prefer a different dedicated schema.
+- Within that schema two tables are maintained:
+  - `transactions` – one row per completed transaction, upserted by `unique_id`.
+  - `transactions_raw` – an append-only log that stores every scrape (including pending transactions) together with the original JSON payload.
+
+Use the following configuration to setup:
+
+```typescript
+storage: {
+  sql?: {
+    /**
+     * PostgreSQL connection string (for example: "postgresql://user:pass@host:5432/moneyman")
+     */
+    connectionString: string;
+    /**
+     * Optional dedicated schema for moneyman data. Defaults to "moneyman".
+     */
+    schema?: string;
+  };
+};
+```
+
+> [!TIP]
+> Grant the configured user rights to create the schema (first run) and manage the two tables.
 
 ### Export to excel on OneDrive
 
